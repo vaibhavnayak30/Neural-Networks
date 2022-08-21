@@ -1,5 +1,5 @@
 # import all necessary libraries
-from NN import mlp
+from Network import mlp
 from torch.optim import SGD
 from sklearn.model_selection import train_test_split
 from sklearn.datasets import make_blobs
