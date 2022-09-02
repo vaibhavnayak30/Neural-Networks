@@ -72,13 +72,13 @@ def test(model, device, test_dataloader):
 
 # Create data loaders
 train_dataloader = torch.utils.data.DataLoader(
-    dataset=datasets.MNIST('/Users/vaibhav/Desktop/Exercise Data/MNIST', train=True, download=True,
+    dataset=datasets.MNIST('<path_to_folder_for_saving>', train=True, download=True,
                            transform=transforms.Compose([transforms.ToTensor(),
                                                         transforms.Normalize((0.1302,), (0.3069,))])),
     batch_size=500, shuffle=False)
 
 test_dataloader = torch.utils.data.DataLoader(
-    dataset=datasets.MNIST('/Users/vaibhav/Desktop/Exercise Data/MNIST', train=False, download=True,
+    dataset=datasets.MNIST('<path_to_folder_for_saving>', train=False, download=True,
                            transform=transforms.Compose([transforms.ToTensor(),
                                                          transforms.Normalize((0.1302,), (0.3069,))])),
     batch_size=500, shuffle=False)
