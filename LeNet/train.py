@@ -1,11 +1,4 @@
 # import required libraries
-from lib2to3.pgen2 import grammar
-from operator import ne
-from turtle import down, forward
-from typing import Counter
-import numpy as np
-import matplotlib.pyplot as plt
-
 import torch
 import torch.nn as nn
 import torchvision
@@ -13,8 +6,6 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 import os
 from torch.utils.data import DataLoader
-
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 torch.manual_seed(0)
 
@@ -55,7 +46,6 @@ class LeNet(nn.Module):
             num_feats *= s
         return num_feats
 
-lenet = LeNet()
 
 def train(net, device, trainLoader, optim, epoch):
     # initialize the loss 
@@ -73,7 +63,7 @@ def train(net, device, trainLoader, optim, epoch):
 
         # forward pass + loss calculation + backward pass 
         op = net(ip)
-        loss =  nn.CrossEntropyLoss(op, ground_truth)
+        loss =  F.cross_entropy(op, ground_truth)
         loss.backward()
         optim.step()
 
@@ -137,14 +127,17 @@ testLoader = DataLoader(dataset= testset, batch_size= 10000, shuffle=True, num_w
 classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
 # define optimiser 
-optim = torch.optim.Adam(LeNet.parameters(), lr=0.001)
+optim = torch.optim.Adam(lenet.parameters(), lr=0.001)
 
 #training loop over dataset
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+
+# Initialize the model
+lenet = LeNet()
+lenet = lenet.to(device)
 for epoch in range(50):
-    train(net=lenet, device=device, trainLoader=trainLoader, optim=optim)
+    train(net=lenet, device=device, trainLoader=trainLoader, optim=optim, epoch=epoch)
     test(net=lenet, device=device, testLoader=testLoader)
 
 print("Finished Training")
-
-
