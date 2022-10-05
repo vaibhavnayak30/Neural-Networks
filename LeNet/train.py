@@ -8,8 +8,6 @@ import os
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
-
-
 torch.manual_seed(0)
 
 class LeNet(nn.Module):
