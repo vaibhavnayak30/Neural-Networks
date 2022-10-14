@@ -34,7 +34,6 @@ data_transformers = {
                                     transforms.ToTensor(),
                                     transforms.Normalize(mean=(0.490,0.449,0.411), std=(0.231,0.221,0.230))])
                     }
-    
 
 # Dataloaders and classes 
 img_data = {k:datasets.ImageFolder(os.path.join(ddir,k), data_transformers[k]) for k in ['train','val']}
@@ -42,7 +41,6 @@ data_loaders = {k:torch.utils.data.DataLoader(img_data[k], batch_size=8, shuffle
 dset_sizes = {k:len(img_data[k]) for k in ['train','val']}
 classes = img_data['train'].classes
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
 
 def imageshow(img, text=None):
     img = img.numpy().transpose((1,2,0))
@@ -98,7 +96,7 @@ def finetune_model(pretrained_model, loss_func, optim, epochs=10):
                 with torch.set_grad_enabled(dset=='train'):
                     ops = pretrained_model(imgs)
                     _, preds = torch.max(ops, 1)
-                    loss_curr = loss_func(preds, tgts)
+                    loss_curr = loss_func(ops, tgts)
 
                     # backward pass only if in training mode
                     if dset == 'train':
@@ -125,7 +123,6 @@ def finetune_model(pretrained_model, loss_func, optim, epochs=10):
     pretrained_model.load_state_dict(model_weights)
     return pretrained_model
 
-
     # Visualize predictions 
 def visualize_predictions(pretrained_model, max_num_imgs=4):
     torch.manual_seed(1)
@@ -148,12 +145,12 @@ def visualize_predictions(pretrained_model, max_num_imgs=4):
                 ax.set_title(f'pred: {classes[preds[j]]} || target: {classes[tgts[j]]}')
                 imageshow(imgs.cpu)
 
-
 # Load model with pre trained weights 
 model_finetune = models.alexnet(weights='IMAGENET1K_V1')
 
 # Print model feature extractor network
 print(model_finetune.features)
+
 
 # Print model classifier network
 print(model_finetune.classifier)
@@ -166,3 +163,4 @@ optim_finetune = optim.SGD(model_finetune.parameters(), lr=0.001)
 
 # Retrain our model 
 model_finetune = finetune_model(pretrained_model=model_finetune, loss_func= loss_func, optim=optim_finetune, epochs=10)
+
