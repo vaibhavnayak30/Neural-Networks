@@ -1,139 +1,168 @@
-# import all necessary modules
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+# Import required libraries 
 
+import os
+import time
+import copy
+import numpy as np
 import matplotlib.pyplot as plt
 
+import torch
+import torchvision
+import torch.nn as nn
+import torch.optim as optim
+from torch.optim import lr_scheduler
+from torchvision import datasets, models, transforms
 
-# define model architecture
-class ConvNet(nn.Module):
-    def __init__(self):
-        super(ConvNet, self).__init__()
-        self.cn1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1)
-        self.cn2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1)
-        self.dp1 = nn.Dropout2d(0.1)
-        self.dp2 = nn.Dropout2d(0.25)
-        self.fc1 = nn.Linear(4608, 64) # 4608 is basically 12x12x32
-        self.fc2 = nn.Linear(64, 10)
+# Random seed generator
+torch.manual_seed(seed=0)
 
-    def forward(self, x):
-        x = self.cn1(x)
-        x = F.relu(x)
-        x = self.cn2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
-        x = self.dp1(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dp2(x)
-        x = self.fc2(x)
-        op = F.log_softmax(x, dim=1)
-        return op
+# Initialize the data directory
+ddir = "E:\Self Learnings\Data\hymenoptera_data"
 
+# Data augmentation and normalisation are transformation on dataset
+# We apply only normalisation transformation on validation dataset 
+# The mean and std for normalisation are calculated as the mean of all pixel values for all images in the training set per each image channel
 
-# Define training and inference routine
-def train(model, device, train_dataloader, optim, epoch):
-    model.train()
-    for b_i, (X, y) in enumerate(train_dataloader):
-        X, y = X.to(device), y.to(device)
-        optim.zero_grad()
-        pred_prob = model(X)
-        loss = F.nll_loss(pred_prob, y)        # nll is negative log loss
-        loss.backward()
-        optim.step()
-        if b_i % 10 == 0:
-            print('epoch: {} [{}/{} ({:.0f}%)]\t training_loss: {:.6f}'.format(
-                epoch, b_i * len(X), len(train_dataloader.dataset),
-                100. * b_i / len(train_dataloader), loss.item()))
+data_transformers = {
+    'train': transforms.Compose([transforms.RandomResizedCrop(224),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor(),
+                                transforms.Normalize(mean=(0.490,0.449,0.411), std=(0.231,0.221,0.230))]),
+
+    'val': transforms.Compose([transforms.Resize(256),
+                                    transforms.CenterCrop(224),
+                                    transforms.ToTensor(),
+                                    transforms.Normalize(mean=(0.490,0.449,0.411), std=(0.231,0.221,0.230))])
+                    }
+    
+
+# Dataloaders and classes 
+img_data = {k:datasets.ImageFolder(os.path.join(ddir,k), data_transformers[k]) for k in ['train','val']}
+data_loaders = {k:torch.utils.data.DataLoader(img_data[k], batch_size=8, shuffle=True, num_workers=2) for k in ['train','val']}
+dset_sizes = {k:len(img_data[k]) for k in ['train','val']}
+classes = img_data['train'].classes
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
-def test(model, device, test_dataloader):
-    model.eval()
-    loss = 0
-    success = 0
+def imageshow(img, text=None):
+    img = img.numpy().transpose((1,2,0))
+    avg= np.array([0.490, 0.449, 0.411])
+    stddev = np.array([0.231, 0.221, 0.230])
+    img = stddev * img + avg
+    img = np.clip(img,0,1)
+    plt.imshow(img)
+    if text is not None:
+        plt.title(text)
+
+# Generate one train dataset batch 
+imgs, cls = next(iter(data_loaders['train']))
+print(imgs.shape)
+
+# Generate a grid from batch 
+grid = torchvision.utils.make_grid(imgs)
+
+imageshow(grid,text=[classes[c] for c in cls])
+
+
+def finetune_model(pretrained_model, loss_func, optim, epochs=10):
+    start = time.time()
+
+    # pretrained model to device
+    pretrained_model = pretrained_model.to(device)
+
+    model_weights = copy.deepcopy(pretrained_model.state_dict())
+    accuracy = 0.0
+
+    for e in range(epochs):
+        print(f'Epoch number {e} / {epochs -1}')
+        print('=' * 20)
+
+        # for each epoch we run through training and validation set 
+        for dset in ['train','val']:
+            if dset == 'train':
+                pretrained_model.train()    # set the model to train mode (i.e trainable weights)
+
+            else:
+                pretrained_model.eval()     # set the model to evaluation mode (no weight updates)
+
+
+            loss = 0.0
+            successes = 0
+
+            # iterate over training and validation dataset 
+            for imgs, tgts in data_loaders[dset]:
+                imgs = imgs.to(device)
+                tgts = tgts.to(device)
+                optim.zero_grad()
+
+                with torch.set_grad_enabled(dset=='train'):
+                    ops = pretrained_model(imgs)
+                    _, preds = torch.max(ops, 1)
+                    loss_curr = loss_func(preds, tgts)
+
+                    # backward pass only if in training mode
+                    if dset == 'train':
+                        loss_curr.backward()
+                        optim.step()
+
+                loss += loss_curr.item() * imgs.size(0)
+                successes += torch.sum(preds == tgts.data)
+
+            loss_epoch = loss / dset_sizes[dset]
+            accuracy_epoch = successes.double() / dset_sizes[dset]
+
+            print(f'{dset} loss in this epoch: {loss_epoch}, accuracy in this epoch: {accuracy_epoch}')
+            if dset == 'val' and accuracy_epoch > accuracy:
+                accuracy = accuracy_epoch
+                model_weights = copy.deepcopy(pretrained_model.state_dict())
+        print()
+
+    time_delta = time.time() - start
+    print(f'Training finished in {time_delta // 60} min')
+    print(f'Best validation set accuracy {accuracy}')
+
+    # load the best model version 
+    pretrained_model.load_state_dict(model_weights)
+    return pretrained_model
+
+
+    # Visualize predictions 
+def visualize_predictions(pretrained_model, max_num_imgs=4):
+    torch.manual_seed(1)
+    was_model_training = pretrained_model.training
+    pretrained_model.eval()
+    imgs_counter = 0
+    plt.figure()
+
     with torch.no_grad():
-        for X, y in test_dataloader:
-            X, y = X.to(device), y.to(device)
-            pred_prob = model(X)
-            loss += F.nll_loss(pred_prob, y, reduction='sum').item()        # loss summed across batches
-            pred = pred_prob.argmax(dim = 1, keepdims=True)
-            success += pred.eq(y.view_as(pred)).sum().item()
+        for i, (imgs,tgts) in enumerate(data_loaders['val']):
+            imgs = imgs.to(device)
+            tgts = tgts.to(device)
+            ops = pretrained_model(imgs)
+            _, preds = torch.max(ops, dim=1)
 
-    loss /= len(test_dataloader.dataset)
-
-    print('\nTest Dataset: Overall Loss: {:.4f}, Overall Accuracy: {}/{} ({:.0f}%)\n'.format(
-        loss,success,len(test_dataloader.dataset),
-        100 * success / len(test_dataloader.dataset)))
-
-
-# Create data loaders
-train_dataloader = torch.utils.data.DataLoader(
-    dataset=datasets.MNIST('<path_to_folder_for_saving>', train=True, download=True,
-                           transform=transforms.Compose([transforms.ToTensor(),
-                                                        transforms.Normalize((0.1302,), (0.3069,))])),
-    batch_size=500, shuffle=False)
-
-test_dataloader = torch.utils.data.DataLoader(
-    dataset=datasets.MNIST('<path_to_folder_for_saving>', train=False, download=True,
-                           transform=transforms.Compose([transforms.ToTensor(),
-                                                         transforms.Normalize((0.1302,), (0.3069,))])),
-    batch_size=500, shuffle=False)
+            for j in range(imgs.size(0)):
+                imgs_counter += 1
+                ax =plt.subplot(max_num_imgs // 2, 2, imgs_counter)
+                ax.axis('off')
+                ax.set_title(f'pred: {classes[preds[j]]} || target: {classes[tgts[j]]}')
+                imageshow(imgs.cpu)
 
 
-# Define optimiser
-torch.manual_seed(0)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = ConvNet()
-model.to(device)
-optimizer = torch.optim.Adadelta(model.parameters(), lr=0.5)
+# Load model with pre trained weights 
+model_finetune = models.alexnet(weights='IMAGENET1K_V1')
 
-# Model training
-for epoch in range(1,3):
-    train(model, device, train_dataloader, optimizer, epoch)
-    test(model, device, test_dataloader)
+# Print model feature extractor network
+print(model_finetune.features)
 
+# Print model classifier network
+print(model_finetune.classifier)
 
-# Run inference on trained model
-test_samples = enumerate(test_dataloader)
-b_i, (sample_data, sample_targets) = next(test_samples)
+#Change the last layer from 1000 classes to 2 classes
+model_finetune.classifier[6] = nn.Linear(in_features=4096, out_features= len(classes))
 
-# Plot the sample
-plt.imshow(sample_data[0][0], cmap='gray', interpolation=None)
+loss_func = nn.CrossEntropyLoss()
+optim_finetune = optim.SGD(model_finetune.parameters(), lr=0.001)
 
-# Inference on test image using trained model
-print(f'Model prediction is: {model(sample_data).data.max(1)[1][0]}')
-print(f'Ground truth is: {sample_target[0]}')
-
-# Another method for inferencing
-# print(f'Model prediction is: {torch.argmax(model(sample_data).data,1)[0]}')
-# print(f'Ground truth is: {sample_target[0]}')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# Retrain our model 
+model_finetune = finetune_model(pretrained_model=model_finetune, loss_func= loss_func, optim=optim_finetune, epochs=10)
