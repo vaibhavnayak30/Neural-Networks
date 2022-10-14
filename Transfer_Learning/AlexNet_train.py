@@ -34,14 +34,14 @@ data_transformers = {
                                     transforms.ToTensor(),
                                     transforms.Normalize(mean=(0.490,0.449,0.411), std=(0.231,0.221,0.230))])
                     }
+    
 
-
-
+# Dataloaders and classes 
 img_data = {k:datasets.ImageFolder(os.path.join(ddir,k), data_transformers[k]) for k in ['train','val']}
 data_loaders = {k:torch.utils.data.DataLoader(img_data[k], batch_size=8, shuffle=True, num_workers=2) for k in ['train','val']}
 dset_sizes = {k:len(img_data[k]) for k in ['train','val']}
 classes = img_data['train'].classes
-device = ['cuda:0' if torch.cuda.is_available() else 'cpu']
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 def imageshow(img, text=None):
@@ -56,6 +56,7 @@ def imageshow(img, text=None):
 
 # Generate one train dataset batch 
 imgs, cls = next(iter(data_loaders['train']))
+print(imgs.shape)
 
 # Generate a grid from batch 
 grid = torchvision.utils.make_grid(imgs)
@@ -96,7 +97,7 @@ def finetune_model(pretrained_model, loss_func, optim, epochs=10):
 
                 with torch.set_grad_enabled(dset=='train'):
                     ops = pretrained_model(imgs)
-                    _, preds = torch.max(ops, dim=1)
+                    _, preds = torch.max(ops, 1)
                     loss_curr = loss_func(preds, tgts)
 
                     # backward pass only if in training mode
@@ -124,11 +125,44 @@ def finetune_model(pretrained_model, loss_func, optim, epochs=10):
     pretrained_model.load_state_dict(model_weights)
     return pretrained_model
 
-    # 
+
+    # Visualize predictions 
+def visualize_predictions(pretrained_model, max_num_imgs=4):
+    torch.manual_seed(1)
+    was_model_training = pretrained_model.training
+    pretrained_model.eval()
+    imgs_counter = 0
+    plt.figure()
+
+    with torch.no_grad():
+        for i, (imgs,tgts) in enumerate(data_loaders['val']):
+            imgs = imgs.to(device)
+            tgts = tgts.to(device)
+            ops = pretrained_model(imgs)
+            _, preds = torch.max(ops, dim=1)
+
+            for j in range(imgs.size(0)):
+                imgs_counter += 1
+                ax =plt.subplot(max_num_imgs // 2, 2, imgs_counter)
+                ax.axis('off')
+                ax.set_title(f'pred: {classes[preds[j]]} || target: {classes[tgts[j]]}')
+                imageshow(imgs.cpu)
 
 
+# Load model with pre trained weights 
+model_finetune = models.alexnet(weights='IMAGENET1K_V1')
 
+# Print model feature extractor network
+print(model_finetune.features)
 
+# Print model classifier network
+print(model_finetune.classifier)
 
+#Change the last layer from 1000 classes to 2 classes
+model_finetune.classifier[6] = nn.Linear(in_features=4096, out_features= len(classes))
 
-    
+loss_func = nn.CrossEntropyLoss()
+optim_finetune = optim.SGD(model_finetune.parameters(), lr=0.001)
+
+# Retrain our model 
+model_finetune = finetune_model(pretrained_model=model_finetune, loss_func= loss_func, optim=optim_finetune, epochs=10)
