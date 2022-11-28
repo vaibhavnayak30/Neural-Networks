@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.functional as F
 
 class BasicBlock(nn.Module):
     multiplier=1
